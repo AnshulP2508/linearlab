@@ -1,0 +1,1 @@
+{"version":3,"file":"query-dashboard.dto.js","sourceRoot":"","sources":["../../../../src/admin/dto/query-dashboard.dto.ts"],"names":[],"mappings":";;;;;;;;;;;;AAAA,qDAAmD;AAEtC,QAAA,eAAe,GAAG,CAAC,KAAK,EAAE,MAAM,EAAE,OAAO,EAAE,MAAM,CAAU,CAAC;AAGzE,MAAa,iBAAiB;IAG5B,KAAK,GAAoB,OAAO,CAAC;CAClC;AAJD,8CAIC;AADC;IAFC,IAAA,4BAAU,GAAE;IACZ,IAAA,sBAAI,EAAC,uBAAe,CAAC;;gDACW"}

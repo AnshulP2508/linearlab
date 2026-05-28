@@ -1,0 +1,20 @@
+export declare const AccountStatuses: readonly ["ACTIVE", "DISABLED", "SUSPENDED"];
+export type AccountStatus = (typeof AccountStatuses)[number];
+export declare const PocStatuses: readonly ["DRAFT", "PENDING_REVIEW", "PUBLISHED", "REJECTED", "ARCHIVED"];
+export type PocStatus = (typeof PocStatuses)[number];
+export declare const FeedbackStatuses: readonly ["VISIBLE", "HIDDEN", "FLAGGED"];
+export type FeedbackStatus = (typeof FeedbackStatuses)[number];
+export declare const NotificationTypes: {
+    readonly POC_SUBMITTED: "POC_SUBMITTED";
+    readonly POC_APPROVED: "POC_APPROVED";
+    readonly POC_REJECTED: "POC_REJECTED";
+    readonly USER_CREATED: "USER_CREATED";
+    readonly USER_UPDATED: "USER_UPDATED";
+    readonly USER_DELETED: "USER_DELETED";
+    readonly FEEDBACK_RECEIVED: "FEEDBACK_RECEIVED";
+    readonly FEEDBACK_MODERATED: "FEEDBACK_MODERATED";
+    readonly CATEGORY_UPDATED: "CATEGORY_UPDATED";
+    readonly SETTINGS_UPDATED: "SETTINGS_UPDATED";
+    readonly SYSTEM_ACTIVITY: "SYSTEM_ACTIVITY";
+};
+export type NotificationType = (typeof NotificationTypes)[keyof typeof NotificationTypes];

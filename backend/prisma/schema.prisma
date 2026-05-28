@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DEVELOPER
+  USER
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+  SUSPENDED
+}
+
+enum PocStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum FeedbackStatus {
+  VISIBLE
+  HIDDEN
+  FLAGGED
+}
+
+enum NotificationType {
+  POC_SUBMITTED
+  POC_APPROVED
+  POC_REJECTED
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  FEEDBACK_RECEIVED
+  FEEDBACK_MODERATED
+  CATEGORY_UPDATED
+  SETTINGS_UPDATED
+  SYSTEM_ACTIVITY
+}
+
+model User {
+  id            String         @id @default(uuid()) @map("_id")
+  name          String
+  email         String         @unique
+  password      String
+  role          Role           @default(USER)
+  status        AccountStatus  @default(ACTIVE)
+  team          String?
+  avatarUrl     String?
+  lastActiveAt  DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  pocs          POC[]          @relation("DeveloperPocs")
+  feedback      Feedback[]
+  reviewedPocs  POC[]          @relation("ReviewerPocs")
+}
+
+model Category {
+  id          String   @id @default(uuid()) @map("_id")
+  name        String   @unique
+  description String?
+  color       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  pocs        POC[]
+}
+
+model POC {
+  id              String     @id @default(uuid()) @map("_id")
+  title           String
+  slug            String     @unique
+  summary         String
+  description     String
+  demoUrl         String?
+  documentation   String?
+  technologies    String[]
+  status          PocStatus  @default(DRAFT)
+  views           Int        @default(0)
+  downloads       Int        @default(0)
+  activeDemoCount Int        @default(0)
+  ratingAverage   Float      @default(0)
+  ratingCount     Int        @default(0)
+  developerId     String
+  categoryId      String?
+  reviewerId      String?
+  reviewNotes     String?
+  rejectedReason  String?
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  publishedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  developer       User       @relation("DeveloperPocs", fields: [developerId], references: [id])
+  category        Category?  @relation(fields: [categoryId], references: [id])
+  reviewer        User?      @relation("ReviewerPocs", fields: [reviewerId], references: [id])
+  feedback        Feedback[]
+}
+
+model Feedback {
+  id        String         @id @default(uuid()) @map("_id")
+  pocId     String
+  userId    String
+  rating    Int
+  comment   String
+  type      String?        @default("USER_FEEDBACK")
+  status    FeedbackStatus @default(VISIBLE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  poc       POC            @relation(fields: [pocId], references: [id])
+  user      User           @relation(fields: [userId], references: [id])
+}
+
+model ActivityLog {
+  id               String   @id @default(uuid()) @map("_id")
+  action           String
+  entityType       String
+  entityId         String
+  performedById    String
+  performedByEmail String
+  metadata         Json?
+  createdAt        DateTime @default(now())
+}
+
+model AdminNotification {
+  id         String           @id @default(uuid()) @map("_id")
+  type       NotificationType
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+}
+
+model PlatformSetting {
+  id          String   @id @default(uuid()) @map("_id")
+  key         String   @unique
+  value       Json
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
