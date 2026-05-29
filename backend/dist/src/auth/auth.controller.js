@@ -16,8 +16,12 @@ exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
 const throttler_1 = require("@nestjs/throttler");
 const auth_service_1 = require("./auth.service");
+const check_email_dto_1 = require("./dto/check-email.dto");
 const login_dto_1 = require("./dto/login.dto");
 const refresh_token_dto_1 = require("./dto/refresh-token.dto");
+const register_dto_1 = require("./dto/register.dto");
+const send_otp_dto_1 = require("./dto/send-otp.dto");
+const verify_otp_dto_1 = require("./dto/verify-otp.dto");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
@@ -25,6 +29,18 @@ let AuthController = class AuthController {
     }
     login(dto, req) {
         return this.authService.login(dto, req.ip);
+    }
+    checkEmail(dto) {
+        return this.authService.checkEmail(dto);
+    }
+    sendOtp(dto) {
+        return this.authService.sendOtp(dto);
+    }
+    verifyOtp(dto) {
+        return this.authService.verifyOtp(dto);
+    }
+    register(dto, req) {
+        return this.authService.register(dto, req.ip);
     }
     refresh(dto) {
         return this.authService.refresh(dto.refreshToken);
@@ -43,6 +59,42 @@ __decorate([
     __metadata("design:paramtypes", [login_dto_1.LoginDto, Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "login", null);
+__decorate([
+    (0, common_1.Post)('check-email'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [check_email_dto_1.CheckEmailDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "checkEmail", null);
+__decorate([
+    (0, common_1.Post)('send-otp'),
+    (0, common_1.HttpCode)(200),
+    (0, throttler_1.Throttle)({ default: { limit: 3, ttl: 60_000 } }),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [send_otp_dto_1.SendOtpDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "sendOtp", null);
+__decorate([
+    (0, common_1.Post)('verify-otp'),
+    (0, common_1.HttpCode)(200),
+    (0, throttler_1.Throttle)({ default: { limit: 5, ttl: 60_000 } }),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [verify_otp_dto_1.VerifyOtpDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "verifyOtp", null);
+__decorate([
+    (0, common_1.Post)('register'),
+    (0, common_1.HttpCode)(201),
+    (0, throttler_1.Throttle)({ default: { limit: 5, ttl: 60_000 } }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [register_dto_1.RegisterDto, Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "register", null);
 __decorate([
     (0, common_1.Post)('refresh'),
     (0, common_1.HttpCode)(200),

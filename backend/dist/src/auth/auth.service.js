@@ -46,28 +46,115 @@ exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
 const bcrypt = __importStar(require("bcrypt"));
+const crypto_1 = require("crypto");
 const mongodb_1 = require("mongodb");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const password_policy_1 = require("../common/password-policy");
 const security_monitor_service_1 = require("../common/security-monitor.service");
 const auth_session_service_1 = require("./auth-session.service");
+const email_service_1 = require("./email.service");
 const mongo_database_service_1 = require("../mongo/mongo-database.service");
+const OTP_TTL_MS = 10 * 60 * 1000;
+const ADMIN_EMAIL = 'admin@gmail.com';
 let AuthService = class AuthService {
     prisma;
     jwtService;
     sessions;
     securityMonitor;
     mongo;
-    constructor(prisma, jwtService, sessions, securityMonitor, mongo) {
+    emailService;
+    constructor(prisma, jwtService, sessions, securityMonitor, mongo, emailService) {
         this.prisma = prisma;
         this.jwtService = jwtService;
         this.sessions = sessions;
         this.securityMonitor = securityMonitor;
         this.mongo = mongo;
+        this.emailService = emailService;
+    }
+    async checkEmail(dto) {
+        const email = this.normalizeEmail(dto.email);
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            select: { id: true },
+        });
+        return { exists: Boolean(user) };
+    }
+    async sendOtp(dto) {
+        const email = this.normalizeEmail(dto.email);
+        await this.assertCanUseOtpSignup(email);
+        const otp = (0, crypto_1.randomInt)(100000, 1000000).toString();
+        const hashedOtp = await bcrypt.hash(otp, password_policy_1.MIN_BCRYPT_ROUNDS);
+        const now = new Date();
+        await (await this.emailOtpCollection()).insertOne({
+            _id: (0, crypto_1.randomUUID)(),
+            email,
+            otp: hashedOtp,
+            expiresAt: new Date(now.getTime() + OTP_TTL_MS),
+            verified: false,
+            createdAt: now,
+            updatedAt: now,
+        });
+        await this.emailService.sendOtp(email, otp);
+        return { ok: true };
+    }
+    async verifyOtp(dto) {
+        const email = this.normalizeEmail(dto.email);
+        const otpRecord = await this.getLatestOtp(email);
+        if (!otpRecord) {
+            throw new common_1.BadRequestException('OTP not found. Please request a new code.');
+        }
+        if (otpRecord.expiresAt.getTime() <= Date.now()) {
+            throw new common_1.BadRequestException('OTP expired. Please request a new code.');
+        }
+        if (otpRecord.verified) {
+            return { verified: true };
+        }
+        const ok = await bcrypt.compare(dto.otp, otpRecord.otp);
+        if (!ok) {
+            throw new common_1.BadRequestException('Invalid OTP');
+        }
+        await (await this.emailOtpCollection()).updateOne({
+            _id: otpRecord._id,
+        }, {
+            $set: { verified: true, updatedAt: new Date() },
+        });
+        return { verified: true };
+    }
+    async register(dto, ipAddress) {
+        const email = this.normalizeEmail(dto.email);
+        if (email === ADMIN_EMAIL) {
+            throw new common_1.BadRequestException('Admin account is seeded. Please sign in.');
+        }
+        (0, password_policy_1.assertStrongPassword)(dto.password);
+        const users = await this.userCollection();
+        const existing = await users.findOne({ email }, { projection: { _id: 1 } });
+        if (existing) {
+            throw new common_1.ConflictException('Email is already registered');
+        }
+        const verifiedOtp = await this.getLatestOtp(email);
+        if (!verifiedOtp?.verified ||
+            verifiedOtp.expiresAt.getTime() <= Date.now()) {
+            throw new common_1.BadRequestException('Please verify your email before registering');
+        }
+        const password = await bcrypt.hash(dto.password, password_policy_1.MIN_BCRYPT_ROUNDS);
+        const now = new Date();
+        const user = {
+            _id: (0, crypto_1.randomUUID)(),
+            email,
+            password,
+            name: this.nameFromEmail(email),
+            role: this.roleForEmail(email),
+            status: client_1.AccountStatus.ACTIVE,
+            createdAt: now,
+            updatedAt: now,
+        };
+        await users.insertOne(user);
+        await (await this.emailOtpCollection()).deleteMany({ email });
+        return this.issueTokens({ id: user._id, email: user.email, role: user.role }, ipAddress);
     }
     async login(dto, ipAddress) {
-        const email = dto.email.trim().toLowerCase();
+        const email = this.normalizeEmail(dto.email);
         const user = await this.prisma.user.findUnique({
             where: { email },
         });
@@ -85,30 +172,7 @@ let AuthService = class AuthService {
             throw new common_1.UnauthorizedException('Account disabled');
         }
         await this.rehashPasswordIfNeeded(user.id, dto.password, user.password);
-        const payload = {
-            sub: user.id,
-            userId: user.id,
-            email: user.email,
-            role: user.role,
-            tokenType: 'access',
-        };
-        const accessToken = await this.jwtService.signAsync(payload, {
-            expiresIn: '15m',
-        });
-        const refreshPayload = {
-            ...payload,
-            tokenType: 'refresh',
-        };
-        const refreshToken = await this.jwtService.signAsync(refreshPayload, {
-            expiresIn: `${this.sessions.getRefreshTokenTtlSeconds()}s`,
-        });
-        await this.sessions.createRefreshSession(user.id, refreshToken);
-        return {
-            access_token: accessToken,
-            refresh_token: refreshToken,
-            expires_in: 15 * 60,
-            role: user.role,
-        };
+        return this.issueTokens(user, ipAddress);
     }
     async refresh(refreshToken) {
         let payload;
@@ -151,6 +215,32 @@ let AuthService = class AuthService {
         await this.sessions.revokeRefreshSession(refreshToken);
         return { ok: true };
     }
+    async issueTokens(user, _ipAddress) {
+        const payload = {
+            sub: user.id,
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            tokenType: 'access',
+        };
+        const accessToken = await this.jwtService.signAsync(payload, {
+            expiresIn: '15m',
+        });
+        const refreshPayload = {
+            ...payload,
+            tokenType: 'refresh',
+        };
+        const refreshToken = await this.jwtService.signAsync(refreshPayload, {
+            expiresIn: `${this.sessions.getRefreshTokenTtlSeconds()}s`,
+        });
+        await this.sessions.createRefreshSession(user.id, refreshToken);
+        return {
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            expires_in: 15 * 60,
+            role: user.role,
+        };
+    }
     async rehashPasswordIfNeeded(userId, plainPassword, hashedPassword) {
         if (!this.isBcryptHash(hashedPassword)) {
             const nextHash = await bcrypt.hash(plainPassword, password_policy_1.MIN_BCRYPT_ROUNDS);
@@ -175,6 +265,45 @@ let AuthService = class AuthService {
     isBcryptHash(value) {
         return /^\$2[aby]\$\d{2}\$/.test(value);
     }
+    normalizeEmail(email) {
+        return email.trim().toLowerCase();
+    }
+    async assertCanUseOtpSignup(email) {
+        if (email === ADMIN_EMAIL) {
+            throw new common_1.BadRequestException('Admin account is seeded. Please sign in.');
+        }
+        const existing = await this.prisma.user.findUnique({
+            where: { email },
+            select: { id: true },
+        });
+        if (existing) {
+            throw new common_1.ConflictException('Email is already registered');
+        }
+    }
+    async getLatestOtp(email) {
+        return (await this.emailOtpCollection()).findOne({ email }, { sort: { createdAt: -1 } });
+    }
+    roleForEmail(email) {
+        if (email === ADMIN_EMAIL)
+            return client_1.Role.ADMIN;
+        if (email.endsWith('@linearloop.io'))
+            return client_1.Role.DEVELOPER;
+        return client_1.Role.USER;
+    }
+    nameFromEmail(email) {
+        const localPart = email.split('@')[0] || 'User';
+        return localPart
+            .replace(/[._-]+/g, ' ')
+            .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+    async emailOtpCollection() {
+        const db = await this.mongo.getDb();
+        return db.collection('EmailOtp');
+    }
+    async userCollection() {
+        const db = await this.mongo.getDb();
+        return db.collection('User');
+    }
 };
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = __decorate([
@@ -183,6 +312,7 @@ exports.AuthService = AuthService = __decorate([
         jwt_1.JwtService,
         auth_session_service_1.AuthSessionService,
         security_monitor_service_1.SecurityMonitorService,
-        mongo_database_service_1.MongoDatabaseService])
+        mongo_database_service_1.MongoDatabaseService,
+        email_service_1.EmailService])
 ], AuthService);
 //# sourceMappingURL=auth.service.js.map

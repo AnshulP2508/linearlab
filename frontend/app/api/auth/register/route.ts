@@ -2,23 +2,21 @@ import { NextResponse } from "next/server";
 import { authApiUrl, parseAuthFailure, setAuthCookies } from "../_lib/session";
 
 export async function POST(request: Request) {
-  let url: string;
-  try {
-    url = authApiUrl("login");
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Missing API URL",
-      },
-      { status: 500 },
-    );
-  }
-
   let body: { email?: string; password?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  let url: string;
+  try {
+    url = authApiUrl("register");
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Missing API URL" },
+      { status: 500 },
+    );
   }
 
   const res = await fetch(url, {
@@ -28,17 +26,13 @@ export async function POST(request: Request) {
       email: body.email,
       password: body.password,
     }),
+    cache: "no-store",
   });
 
   if (!res.ok) {
     return NextResponse.json(
-      {
-        error:
-          res.status === 401
-            ? "Invalid email or password"
-            : await parseAuthFailure(res),
-      },
-      { status: res.status === 401 || res.status === 403 ? 401 : res.status },
+      { error: await parseAuthFailure(res) },
+      { status: res.status },
     );
   }
 
